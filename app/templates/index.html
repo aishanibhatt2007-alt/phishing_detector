@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Phishing Email Detector</title>
+<style>
+  :root {
+    --bg: #0f1420; --panel: #161c2c; --panel2: #1d2436; --border: #2a324a;
+    --text: #e8ebf3; --muted: #93a0bd; --accent: #5b8cff;
+    --danger: #ff5c71; --warn: #ffb648; --safe: #35d08f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: linear-gradient(180deg, var(--bg), #0a0e17); color: var(--text); min-height: 100vh;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 40px 20px 80px; }
+  header { text-align: center; margin-bottom: 32px; }
+  header h1 { font-size: 28px; margin-bottom: 8px; }
+  header p { color: var(--muted); margin: 0; }
+  .grid { display: grid; grid-template-columns: 1fr; gap: 24px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+    padding: 24px;
+  }
+  .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+  .tab {
+    padding: 8px 16px; border-radius: 8px; cursor: pointer; color: var(--muted);
+    border: 1px solid transparent; font-size: 14px;
+  }
+  .tab.active { background: var(--panel2); color: var(--text); border-color: var(--border); }
+  label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; margin-top: 14px; }
+  input[type=text], textarea {
+    width: 100%; background: var(--panel2); border: 1px solid var(--border);
+    border-radius: 8px; color: var(--text); padding: 10px 12px; font-size: 14px;
+    font-family: inherit;
+  }
+  textarea { resize: vertical; min-height: 120px; }
+  #raw_email { min-height: 260px; font-family: "SF Mono", Menlo, monospace; font-size: 13px; }
+  .hidden { display: none !important; }
+  button#analyzeBtn {
+    margin-top: 20px; background: var(--accent); color: white; border: none;
+    padding: 12px 22px; border-radius: 10px; font-size: 15px; cursor: pointer; font-weight: 600;
+  }
+  button#analyzeBtn:hover { filter: brightness(1.1); }
+  button#analyzeBtn:disabled { opacity: 0.6; cursor: not-allowed; }
+  .samples { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .sample-btn {
+    font-size: 12px; background: var(--panel2); border: 1px solid var(--border);
+    color: var(--muted); padding: 6px 10px; border-radius: 20px; cursor: pointer;
+  }
+  .sample-btn:hover { color: var(--text); }
+  #result { margin-top: 10px; }
+  .verdict {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 20px; border-radius: 12px; margin-bottom: 16px;
+  }
+  .verdict.High { background: rgba(255,92,113,0.12); border: 1px solid var(--danger); }
+  .verdict.Medium { background: rgba(255,182,72,0.12); border: 1px solid var(--warn); }
+  .verdict.Low { background: rgba(53,208,143,0.12); border: 1px solid var(--safe); }
+  .verdict-label { font-size: 20px; font-weight: 700; }
+  .verdict.High .verdict-label { color: var(--danger); }
+  .verdict.Medium .verdict-label { color: var(--warn); }
+  .verdict.Low .verdict-label { color: var(--safe); }
+  .score { font-size: 32px; font-weight: 800; }
+  .bar-bg { height: 10px; background: var(--panel2); border-radius: 6px; overflow: hidden; margin: 14px 0 20px; }
+  .bar-fill { height: 100%; border-radius: 6px; transition: width .4s ease; }
+  .bar-fill.High { background: var(--danger); }
+  .bar-fill.Medium { background: var(--warn); }
+  .bar-fill.Low { background: var(--safe); }
+  .reasons h3 { font-size: 14px; color: var(--muted); margin-bottom: 10px; text-transform: uppercase; letter-spacing: .04em;}
+  .reasons ul { margin: 0; padding-left: 20px; }
+  .reasons li { margin-bottom: 8px; line-height: 1.4; }
+  .no-reasons { color: var(--muted); font-size: 14px; }
+  .error { color: var(--danger); margin-top: 14px; font-size: 14px; }
+  footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 40px; }
+  footer a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🛡️ AI Phishing Email Detector</h1>
+    <p>Paste an email or raw .eml source and get an ML-powered risk assessment with explanations.</p>
+  </header>
+
+  <div class="grid">
+    <div class="card">
+      <div class="tabs">
+        <div class="tab active" data-tab="fields">Fields</div>
+        <div class="tab" data-tab="raw">Raw .eml / headers</div>
+      </div>
+
+      <div id="fields-panel">
+        <label>Sender address</label>
+        <input type="text" id="sender" placeholder="e.g. support@paypa1-verify.com">
+        <label>Subject</label>
+        <input type="text" id="subject" placeholder="e.g. Urgent: Verify your account now">
+        <label>Body</label>
+        <textarea id="body" placeholder="Paste the email body text here..."></textarea>
+      </div>
+
+      <div id="raw-panel" class="hidden">
+        <label>Raw email source (.eml content, including headers)</label>
+        <textarea id="raw_email" placeholder="From: ...&#10;Subject: ...&#10;&#10;Body text..."></textarea>
+      </div>
+
+      <div class="samples">
+        <span style="font-size:12px;color:var(--muted);align-self:center;">Try a sample:</span>
+        <button class="sample-btn" data-sample="phish">Phishing example</button>
+        <button class="sample-btn" data-sample="legit">Legitimate example</button>
+      </div>
+
+      <button id="analyzeBtn">Analyze Email</button>
+      <div id="errorBox" class="error hidden"></div>
+    </div>
+
+    <div class="card hidden" id="resultCard">
+      <div id="result"></div>
+    </div>
+  </div>
+
+  <footer>
+    Educational/demo project · ML model trained with scikit-learn ·
+    Not a substitute for enterprise email security filtering.
+  </footer>
+</div>
+
+<script>
+const tabs = document.querySelectorAll('.tab');
+tabs.forEach(t => t.addEventListener('click', () => {
+  tabs.forEach(x => x.classList.remove('active'));
+  t.classList.add('active');
+  document.getElementById('fields-panel').classList.toggle('hidden', t.dataset.tab !== 'fields');
+  document.getElementById('raw-panel').classList.toggle('hidden', t.dataset.tab !== 'raw');
+}));
+
+const samples = {
+  phish: {
+    sender: "security-alert@paypa1-verify.com",
+    subject: "Urgent: Your account will be suspended in 24 hours",
+    body: "Dear Customer,\n\nWe detected unusual activity on your account. Your account will be suspended within 24 hours unless you verify your identity immediately. Click here to confirm your details: http://paypa1-verify.com/verify?id=48213\n\nFailure to act now will result in permanent account closure.\n\nSecurity Team"
+  },
+  legit: {
+    sender: "receipts@amazon.com",
+    subject: "Your Amazon order has shipped",
+    body: "Hello,\n\nYour order #58213 has shipped and is on its way! You can track your package anytime from your orders page. Estimated delivery: 2-3 business days.\n\nThanks for shopping with us."
+  }
+};
+
+document.querySelectorAll('.sample-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const s = samples[btn.dataset.sample];
+    document.querySelector('.tab[data-tab="fields"]').click();
+    document.getElementById('sender').value = s.sender;
+    document.getElementById('subject').value = s.subject;
+    document.getElementById('body').value = s.body;
+  });
+});
+
+document.getElementById('analyzeBtn').addEventListener('click', async () => {
+  const activeTab = document.querySelector('.tab.active').dataset.tab;
+  const errorBox = document.getElementById('errorBox');
+  errorBox.classList.add('hidden');
+
+  let payload;
+  if (activeTab === 'raw') {
+    payload = { mode: 'raw', raw_email: document.getElementById('raw_email').value };
+  } else {
+    payload = {
+      mode: 'fields',
+      sender: document.getElementById('sender').value,
+      subject: document.getElementById('subject').value,
+      body: document.getElementById('body').value
+    };
+  }
+
+  const btn = document.getElementById('analyzeBtn');
+  btn.disabled = true; btn.textContent = 'Analyzing...';
+
+  try {
+    const res = await fetch('/api/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Request failed');
+    renderResult(data);
+  } catch (e) {
+    errorBox.textContent = e.message;
+    errorBox.classList.remove('hidden');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Analyze Email';
+  }
+});
+
+function renderResult(data) {
+  const card = document.getElementById('resultCard');
+  card.classList.remove('hidden');
+  const pct = Math.round(data.phishing_probability * 100);
+  const level = data.risk_level;
+
+  let reasonsHtml = '<p class="no-reasons">No specific red flags detected by the heuristic checks — but always verify sender identity for sensitive requests.</p>';
+  if (data.reasons && data.reasons.length) {
+    reasonsHtml = '<ul>' + data.reasons.map(r => `<li>${escapeHtml(r)}</li>`).join('') + '</ul>';
+  }
+
+  document.getElementById('result').innerHTML = `
+    <div class="verdict ${level}">
+      <div>
+        <div class="verdict-label">${data.is_phishing ? '⚠️ Likely Phishing' : '✅ Likely Legitimate'}</div>
+        <div style="color:var(--muted); font-size:13px; margin-top:4px;">Risk level: ${level}</div>
+      </div>
+      <div class="score">${pct}%</div>
+    </div>
+    <div class="bar-bg"><div class="bar-fill ${level}" style="width:${pct}%"></div></div>
+    <div class="reasons">
+      <h3>Why this score</h3>
+      ${reasonsHtml}
+    </div>
+  `;
+  card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+</script>
+</body>
+</html>
